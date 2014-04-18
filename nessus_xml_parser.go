@@ -205,7 +205,7 @@ func main() {
                 return
         }
         defer db.Close()
-        dropTable(db)
+        //dropTable(db)
         createTable(db)
         stm := insertStatement(db)
         prep, err := db.Prepare(stm)
