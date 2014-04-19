@@ -23,4 +23,6 @@ Run source
 
 ### Table Layout
 
- id | host | mac_address | netbios | fqdn | os_name |  plugin_name | plugin_id | severity | cve | risk | description | solution | synopsis | plugin_output | see_also | exploit_available | exploit_ease | metasploit_framework | metasploit_name  | canvas_framework | core_framework | exploited_malware | cvss | month | year 
+id | host | mac_address | netbios | fqdn | os_name |  plugin_name | plugin_id | severity | cve | risk | description | solution | synopsis | plugin_output | see_also | exploit_available | exploit_ease | metasploit_framework | metasploit_name  | canvas_framework | core_framework | exploited_malware | cvss | month | year 
+--- | --- | --- | --- | --- | --- |--- | --- | --- |--- | --- | --- |--- | --- | --- |--- | --- | --- |--- | --- | --- |--- | --- | --- |--- | --- |
+
