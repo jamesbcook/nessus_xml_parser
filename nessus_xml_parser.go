@@ -1,7 +1,6 @@
 package main
 
 import (
-        "bytes"
         "database/sql"
         "encoding/xml"
         "flag"
@@ -9,6 +8,7 @@ import (
         _ "github.com/lib/pq"
         "log"
         "os"
+        "path/filepath"
         "time"
 )
 
@@ -77,20 +77,6 @@ type readyData struct {
         pluginID          int
 }
 
-func insertStatement(db *sql.DB) string {
-        var stm bytes.Buffer
-        stm.WriteString("insert into network (host, mac_address, netbios, ")
-        stm.WriteString("fqdn, os_name, plugin_name, plugin_id, severity, ")
-        stm.WriteString("cve, risk, description, solution, synopsis, ")
-        stm.WriteString("plugin_output, see_also, exploit_available, ")
-        stm.WriteString("exploit_ease, metasploit_framework, metasploit_name, ")
-        stm.WriteString("canvas_framework, core_framework, exploited_malware, ")
-        stm.WriteString("cvss, month, year) values ($1,$2, $3, $4, $5, $6, ")
-        stm.WriteString("$7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, ")
-        stm.WriteString("$18, $19, $20, $21, $22, $23, $24, $25)")
-        return stm.String()
-}
-
 func dataPrep(prep *sql.Stmt, report *ReportHost, db *sql.DB) {
         hashmap := make(map[string]string)
         for _, host := range report.HostProperties.Info {
@@ -126,92 +112,7 @@ func dataPrep(prep *sql.Stmt, report *ReportHost, db *sql.DB) {
         fmt.Println("")
 }
 
-// Database import
-func databaseImport(prep *sql.Stmt, d *readyData, db *sql.DB) {
-        month := int(time.Now().Month())
-        year := int(time.Now().Year())
-        if len(d.cve) == 0 {
-                d.cve = append(d.cve, "None")
-        }
-        for _, cve := range d.cve {
-                res, err := prep.Exec(d.ip, d.mac, d.netbios, d.fqdn, d.os,
-                        d.pluginName, d.pluginID, d.severity, cve, d.risk,
-                        d.desc, d.solution, d.synopsis, d.pluginOutput, d.seeAlso,
-                        d.exploitAvailable, d.exploitEase, d.exploitMetasploit,
-                        d.metasploitName, d.exploitCanvas, d.exploitCore,
-                        d.exploitedMalware, d.cvss, month, year)
-
-                fmt.Printf("Importing %-12s Items:%d\r", d.ip, count)
-                count += 1
-                if err != nil || res == nil {
-                        log.Fatal(err)
-                }
-        }
-
-}
-
-func createTable(db *sql.DB) {
-        var stm bytes.Buffer
-        stm.WriteString("create table if not exists network (id serial, host text, ")
-        stm.WriteString("mac_address text, netbios text, fqdn text, ")
-        stm.WriteString("os_name text, plugin_name text, plugin_id integer, ")
-        stm.WriteString("severity integer, cve text, risk text, ")
-        stm.WriteString("description text, solution text, synopsis text, ")
-        stm.WriteString("plugin_output text, see_also text, ")
-        stm.WriteString("exploit_available boolean, exploit_ease text, ")
-        stm.WriteString("metasploit_framework boolean, metasploit_name text, ")
-        stm.WriteString("canvas_framework boolean, core_framework boolean, ")
-        stm.WriteString("exploited_malware boolean, cvss float, ")
-        stm.WriteString("month integer, year integer)")
-        prep, err := db.Prepare(stm.String())
-        if err != nil {
-                log.Fatal(err)
-        }
-        res, err := prep.Exec()
-        if err != nil || res == nil {
-                log.Fatal(err)
-        }
-
-        prep.Close()
-}
-
-func dropTable(db *sql.DB) {
-        stm := "drop table if exists network"
-        prep, err := db.Prepare(stm)
-        if err != nil {
-                log.Fatal(err)
-        }
-        res, err := prep.Exec()
-        if err != nil || res == nil {
-                log.Fatal(err)
-        }
-        prep.Close()
-}
-
-func main() {
-        file := flag.String("file", "xmlFile", "file to parse into db")
-        flag.Parse()
-        xmlFile, err := os.Open(*file)
-        if err != nil {
-                fmt.Println("Error opening file:", err)
-                return
-        }
-        defer xmlFile.Close()
-
-        db, err := sql.Open("postgres",
-                "user=postgres dbname=gotest sslmode=disable")
-        if err != nil {
-                fmt.Println("Error Connecting:", err)
-                return
-        }
-        defer db.Close()
-        //dropTable(db)
-        createTable(db)
-        stm := insertStatement(db)
-        prep, err := db.Prepare(stm)
-        if err != nil {
-                log.Fatal(err)
-        }
+func xmlParse(xmlFile *os.File, prep *sql.Stmt, db *sql.DB) {
         decoder := xml.NewDecoder(xmlFile)
         for {
                 count = 0
@@ -230,5 +131,127 @@ func main() {
                 }
 
         }
+}
+
+// Database import
+func databaseImport(prep *sql.Stmt, d *readyData, db *sql.DB) {
+        month := int(time.Now().Month())
+        year := int(time.Now().Year())
+        if len(d.cve) == 0 {
+                d.cve = append(d.cve, "None")
+        }
+        for _, cve := range d.cve {
+                res, err := prep.Exec(d.ip, d.mac, d.netbios, d.fqdn, d.os,
+                        d.pluginName, d.pluginID, d.severity, cve, d.risk,
+                        d.desc, d.solution, d.synopsis, d.pluginOutput, d.seeAlso,
+                        d.exploitAvailable, d.exploitEase, d.exploitMetasploit,
+                        d.metasploitName, d.exploitCanvas, d.exploitCore,
+                        d.exploitedMalware, d.cvss, month, year)
+
+                fmt.Printf("Importing %-15s Items:%4d \r", d.ip, count)
+                count += 1
+                if err != nil || res == nil {
+                        log.Fatal(err)
+                }
+        }
+
+}
+
+func createTable(db *sql.DB) {
+        const stm string = `create table if not exists network (id serial,
+        host text,mac_address text, netbios text, fqdn text,os_name text,
+        plugin_name text, plugin_id integer,severity integer, cve text,
+        risk text,description text, solution text, synopsis text,
+        plugin_output text, see_also text,exploit_available boolean,
+        exploit_ease text,metasploit_framework boolean, metasploit_name text,
+        canvas_framework boolean, core_framework boolean,
+        exploited_malware boolean, cvss float,month integer, year integer)`
+        prep, err := db.Prepare(stm)
+        if err != nil {
+                log.Fatal(err)
+        }
+        res, err := prep.Exec()
+        if err != nil || res == nil {
+                log.Fatal(err)
+        }
+
         prep.Close()
+}
+
+func dropTable(db *sql.DB) {
+        const stm string = "drop table if exists network"
+        prep, err := db.Prepare(stm)
+        if err != nil {
+                log.Fatal(err)
+        }
+        res, err := prep.Exec()
+        if err != nil || res == nil {
+                log.Fatal(err)
+        }
+        prep.Close()
+}
+
+func main() {
+        fileOpt := flag.String("file", "xmlFile", "file to parse into db")
+        dirOpt := flag.String("dir", "directory", "dir of xml files")
+        flag.Parse()
+
+        db, err := sql.Open("postgres",
+                "user=postgres dbname=gotest sslmode=disable")
+        if err != nil {
+                fmt.Println("Error Connecting:", err)
+                return
+        }
+        defer db.Close()
+        txn, err := db.Begin()
+        if err != nil {
+                log.Fatal(err)
+        }
+        //dropTable(db)
+        createTable(db)
+        prep, err := txn.Prepare(`copy network (host, mac_address, netbios,
+                fqdn, os_name, plugin_name, plugin_id, severity, cve,
+                risk, description, solution, synopsis, plugin_output,
+                see_also, exploit_available, exploit_ease, metasploit_framework,
+                metasploit_name, canvas_framework, core_framework,
+                exploited_malware, cvss, month, year) from stdin`)
+        file := *fileOpt
+        dir := *dirOpt
+        if file != "xmlFile" {
+                xmlFile, err := os.Open(file)
+                defer xmlFile.Close()
+                if err != nil {
+                        log.Fatal(err)
+                        return
+                }
+                xmlParse(xmlFile, prep, db)
+        } else if dir != "directory" {
+                files, _ := filepath.Glob(dir + "/*")
+                for _, file := range files {
+                        xmlFile, err := os.Open(file)
+                        defer xmlFile.Close()
+                        if err != nil {
+                                log.Fatal(err)
+                                return
+                        }
+                        fmt.Printf("Parsing %s\n", file)
+                        xmlParse(xmlFile, prep, db)
+                }
+
+        }
+        if err != nil {
+                log.Fatal(err)
+        }
+        _, err = prep.Exec()
+        if err != nil {
+                log.Fatal(err)
+        }
+        err = prep.Close()
+        if err != nil {
+                log.Fatal(err)
+        }
+        err = txn.Commit()
+        if err != nil {
+                log.Fatal(err)
+        }
 }
