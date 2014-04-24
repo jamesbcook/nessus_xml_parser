@@ -9,6 +9,8 @@ import (
         "log"
         "os"
         "path/filepath"
+        "runtime"
+        "sync"
         "time"
 )
 
@@ -109,10 +111,12 @@ func dataPrep(prep *sql.Stmt, report *ReportHost, db *sql.DB) {
                 rd.pluginID = host.PluginID
                 databaseImport(prep, &rd, db)
         }
-        fmt.Println("")
+        if verbose == 2 {
+                fmt.Println("")
+        }
 }
 
-func xmlParse(xmlFile *os.File, prep *sql.Stmt, db *sql.DB) {
+func xmlParse(wg *sync.WaitGroup, xmlFile *os.File, prep *sql.Stmt, db *sql.DB) {
         decoder := xml.NewDecoder(xmlFile)
         for {
                 count = 0
@@ -131,6 +135,7 @@ func xmlParse(xmlFile *os.File, prep *sql.Stmt, db *sql.DB) {
                 }
 
         }
+        wg.Done()
 }
 
 // Database import
@@ -147,9 +152,10 @@ func databaseImport(prep *sql.Stmt, d *readyData, db *sql.DB) {
                         d.exploitAvailable, d.exploitEase, d.exploitMetasploit,
                         d.metasploitName, d.exploitCanvas, d.exploitCore,
                         d.exploitedMalware, d.cvss, month, year)
-
-                fmt.Printf("Importing %-15s Items:%4d \r", d.ip, count)
-                count += 1
+                if verbose == 2 {
+                        fmt.Printf("Importing %-15s Items:%4d \r", d.ip, count)
+                        count += 1
+                }
                 if err != nil || res == nil {
                         log.Fatal(err)
                 }
@@ -157,8 +163,8 @@ func databaseImport(prep *sql.Stmt, d *readyData, db *sql.DB) {
 
 }
 
-func createTable(db *sql.DB) {
-        const stm string = `create table if not exists network (id serial,
+func createTable(db *sql.DB, table *string) {
+        var stm string = `create table if not exists ` + *table + `(id serial,
         host text,mac_address text, netbios text, fqdn text,os_name text,
         plugin_name text, plugin_id integer,severity integer, cve text,
         risk text,description text, solution text, synopsis text,
@@ -178,8 +184,8 @@ func createTable(db *sql.DB) {
         prep.Close()
 }
 
-func dropTable(db *sql.DB) {
-        const stm string = "drop table if exists network"
+func dropTable(db *sql.DB, table *string) {
+        var stm string = "drop table if exists " + *table
         prep, err := db.Prepare(stm)
         if err != nil {
                 log.Fatal(err)
@@ -191,13 +197,42 @@ func dropTable(db *sql.DB) {
         prep.Close()
 }
 
+func coreCheck(cores *int) {
+        if *cores > runtime.NumCPU() || *cores <= 0 {
+                log.Fatal(`You don't have that many cores.... you can use up to `,
+                        runtime.NumCPU())
+        } else {
+                runtime.GOMAXPROCS(*cores)
+                if verbose == 1 {
+                        fmt.Println("Using " + string(runtime.GOMAXPROCS(*cores)) + " cores")
+                }
+        }
+}
+
+var verbose int
+
 func main() {
         fileOpt := flag.String("file", "xmlFile", "file to parse into db")
         dirOpt := flag.String("dir", "directory", "dir of xml files")
+        coreOpt := flag.Int("cores", 1, "Number of Cores to use")
+        verboseOpt := flag.Int("verbose", 0, "Verbose level 0,1,2")
+        userOpt := flag.String("user", "postgres", "User for Postgres")
+        passOpt := flag.String("pass", "", "Password for Postgres user")
+        dbOpt := flag.String("db", "gotest", "DB to use")
+        tableOpt := flag.String("table", "internal_network", "Table to use")
+        sslOpt := flag.String("ssl", "disable", "Enable or Disable")
         flag.Parse()
-
-        db, err := sql.Open("postgres",
-                "user=postgres dbname=gotest sslmode=disable")
+        coreCheck(coreOpt)
+        verbose = *verboseOpt
+        var con_opts string
+        if *passOpt == "" {
+                con_opts = "user=" + *userOpt +
+                        " dbname=" + *dbOpt + " sslmode=" + *sslOpt
+        } else {
+                con_opts = "user=" + *userOpt + " password=" + *passOpt +
+                        " dbname=" + *dbOpt + " sslmode=" + *sslOpt
+        }
+        db, err := sql.Open("postgres", con_opts)
         if err != nil {
                 fmt.Println("Error Connecting:", err)
                 return
@@ -207,16 +242,21 @@ func main() {
         if err != nil {
                 log.Fatal(err)
         }
-        //dropTable(db)
-        createTable(db)
-        prep, err := txn.Prepare(`copy network (host, mac_address, netbios,
+        //dropTable(db, tableOpt)
+        createTable(db, tableOpt)
+        prep, err := txn.Prepare(`copy ` + *tableOpt + ` (host, mac_address, netbios,
                 fqdn, os_name, plugin_name, plugin_id, severity, cve,
                 risk, description, solution, synopsis, plugin_output,
                 see_also, exploit_available, exploit_ease, metasploit_framework,
                 metasploit_name, canvas_framework, core_framework,
                 exploited_malware, cvss, month, year) from stdin`)
+        if err != nil {
+                log.Fatal(err)
+        }
         file := *fileOpt
         dir := *dirOpt
+        fmt.Println("Importing..")
+        var wg sync.WaitGroup
         if file != "xmlFile" {
                 xmlFile, err := os.Open(file)
                 defer xmlFile.Close()
@@ -224,7 +264,8 @@ func main() {
                         log.Fatal(err)
                         return
                 }
-                xmlParse(xmlFile, prep, db)
+                wg.Add(1)
+                xmlParse(&wg, xmlFile, prep, db)
         } else if dir != "directory" {
                 files, _ := filepath.Glob(dir + "/*")
                 for _, file := range files {
@@ -234,11 +275,15 @@ func main() {
                                 log.Fatal(err)
                                 return
                         }
-                        fmt.Printf("Parsing %s\n", file)
-                        xmlParse(xmlFile, prep, db)
+                        if verbose == 1 {
+                                fmt.Printf("Parsing %s\n", file)
+                        }
+                        wg.Add(1)
+                        go xmlParse(&wg, xmlFile, prep, db)
                 }
 
         }
+        wg.Wait()
         if err != nil {
                 log.Fatal(err)
         }
