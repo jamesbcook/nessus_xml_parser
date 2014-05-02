@@ -79,7 +79,7 @@ type readyData struct {
         pluginID          int
 }
 
-func dataPrep(prep *sql.Stmt, report *ReportHost, db *sql.DB) {
+func dataPrep(wg *sync.WaitGroup, prep *sql.Stmt, report *ReportHost, db *sql.DB) {
         hashmap := make(map[string]string)
         for _, host := range report.HostProperties.Info {
                 hashmap[host.Key] = host.Value
@@ -114,6 +114,7 @@ func dataPrep(prep *sql.Stmt, report *ReportHost, db *sql.DB) {
         if verbose == 2 {
                 fmt.Println("")
         }
+        wg.Done()
 }
 
 func xmlParse(wg *sync.WaitGroup, xmlFile *os.File, prep *sql.Stmt, db *sql.DB) {
@@ -128,9 +129,9 @@ func xmlParse(wg *sync.WaitGroup, xmlFile *os.File, prep *sql.Stmt, db *sql.DB) 
                 case xml.StartElement:
                         if se.Name.Local == "ReportHost" {
                                 var report ReportHost
-
+                                wg.Add(1)
                                 decoder.DecodeElement(&report, &se)
-                                dataPrep(prep, &report, db)
+                                go dataPrep(wg, prep, &report, db)
                         }
                 }
 
