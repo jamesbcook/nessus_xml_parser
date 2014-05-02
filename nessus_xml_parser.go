@@ -200,7 +200,7 @@ func dropTable(db *sql.DB, table *string) {
 
 func coreCheck(cores *int) {
         if *cores > runtime.NumCPU() || *cores <= 0 {
-                log.Fatal(`You don't have that many cores.... you can use up to `,
+                log.Fatal(`You don't have that many cores... you can use up to `,
                         runtime.NumCPU())
         } else {
                 runtime.GOMAXPROCS(*cores)

@@ -3,8 +3,31 @@ nessus_xml_parser
 
 Parse Nessus XML file and insert into a db
 
+### ./nessus_xml_parser -h
 
-Run the Bin or build your self
+    Usage of ./nessus_xml_parser:
+
+      -cores=1: Number of Cores to use
+  
+      -db="gotest": DB to use
+  
+      -dir="directory": dir of xml files
+  
+      -file="xmlFile": file to parse into db
+  
+      -pass="": Password for Postgres user
+  
+      -ssl="disable": Enable or Disable
+  
+      -table="internal_network": Table to use
+  
+      -user="postgres": User for Postgres
+  
+      -verbose=0: Verbose level 0,1,2
+
+### Example
+
+    /nessus_xml_parser -cores 4 -dir /home/user/xmlDir/ -table testing
 
 ### Build
 
